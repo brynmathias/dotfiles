@@ -1,0 +1,91 @@
+# Garden Sentinel Server Configuration
+
+server:
+  host: "0.0.0.0"
+  port: 5000
+  debug: false
+
+mqtt:
+  enabled: true
+  broker: "localhost"
+  port: 1883
+  topic_prefix: "garden-sentinel"
+
+detection:
+  model_type: "yolov8"
+  model_path: "models/predator_detector.pt"
+  use_pretrained: true
+  pretrained_model: "yolov8n.pt"  # n, s, m, l, x
+  confidence_threshold: 0.5
+  iou_threshold: 0.45
+  device: "cuda"  # cuda, cpu, mps
+  predator_classes:
+    - "bird"
+    - "cat"
+    - "dog"
+  max_queue_size: 100
+
+alerts:
+  cooldown_s: 30
+
+  low:
+    log: true
+    notify: false
+    alarm: false
+    sprayer: false
+
+  medium:
+    log: true
+    notify: true
+    alarm: false
+    sprayer: false
+
+  high:
+    log: true
+    notify: true
+    alarm: true
+    sprayer: false
+
+  critical:
+    log: true
+    notify: true
+    alarm: true
+    sprayer: true
+
+  notifications:
+    pushover:
+      enabled: false
+      user_key: ""
+      api_token: ""
+
+    email:
+      enabled: false
+      smtp_host: "smtp.gmail.com"
+      smtp_port: 587
+      username: ""
+      password: ""
+      from_address: ""
+      to_addresses: []
+
+    webhook:
+      enabled: false
+      url: ""
+
+    home_assistant:
+      enabled: false
+      url: "http://homeassistant.local:8123"
+      token: ""
+
+storage:
+  frames_dir: "data/frames"
+  events_dir: "data/events"
+  training_data_dir: "data/training"
+  database_url: "sqlite:///data/garden_sentinel.db"
+  max_frames: 10000
+  frame_retention_days: 7
+  event_retention_days: 30
+  auto_collect_detections: true
+
+logging:
+  level: "INFO"
+  file: "logs/server.log"
