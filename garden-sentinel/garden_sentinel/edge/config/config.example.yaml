@@ -1,0 +1,75 @@
+# Garden Sentinel Edge Device Configuration
+
+device:
+  id: "garden-cam-01"  # Unique identifier for this device
+  name: "Main Garden Camera"
+  location: "chicken_coop_entrance"
+
+camera:
+  width: 1920
+  height: 1080
+  fps: 30
+  rotation: 0
+  hflip: false
+  vflip: false
+
+streaming:
+  http_enabled: true
+  http_port: 8080
+  http_path: "/stream"
+  jpeg_quality: 85
+  stream_fps: 15
+
+server:
+  host: "192.168.1.100"
+  port: 5000
+  mqtt_enabled: true
+  mqtt_broker: "192.168.1.100"
+  mqtt_port: 1883
+  mqtt_topic_prefix: "garden-sentinel"
+  upload_frames: true
+  upload_interval_ms: 500
+  heartbeat_interval_s: 30
+
+gpio:
+  alarm_pin: 17
+  sprayer_pin: 27
+  status_led_pin: 22
+  ir_led_pin: 23
+  alarm_duration_s: 10
+  sprayer_duration_s: 5
+  sprayer_cooldown_s: 30
+
+servo:
+  camera_pan_pin: 12
+  camera_tilt_pin: 13
+  gun_pan_pin: 18
+  gun_tilt_pin: 19
+  pan_min: -90
+  pan_max: 90
+  tilt_min: -45
+  tilt_max: 45
+  speed: 100
+
+tracking:
+  enabled: true
+  tracker_type: "kcf"  # csrt, kcf, mosse
+  max_frames_without_detection: 30
+  smoothing_factor: 0.7
+
+edge_inference:
+  enabled: false
+  accelerator: "coral"  # coral, hailo, cpu
+  model_path: "/opt/garden-sentinel/models/predator_detector.tflite"
+  confidence_threshold: 0.5
+  inference_interval_ms: 200
+
+motion_detection:
+  enabled: true
+  sensitivity: 25
+  min_area: 500
+  cooldown_s: 2
+
+logging:
+  level: "INFO"
+  file: "/var/log/garden-sentinel/edge.log"

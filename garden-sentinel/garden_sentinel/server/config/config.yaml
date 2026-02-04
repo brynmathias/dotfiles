@@ -1,0 +1,133 @@
+# Garden Sentinel Server Configuration
+
+server:
+  host: "0.0.0.0"
+  port: 5000
+  debug: false
+  workers: 4
+
+mqtt:
+  enabled: true
+  broker: "localhost"
+  port: 1883
+  topic_prefix: "garden-sentinel"
+  username: null
+  password: null
+
+detection:
+  # Model configuration
+  model_type: "yolov8"  # "yolov8", "yolov5", "custom"
+  model_path: "models/predator_detector.pt"
+
+  # Use pre-trained COCO model initially, fine-tune later
+  use_pretrained: true
+  pretrained_model: "yolov8n.pt"  # yolov8n, yolov8s, yolov8m, yolov8l, yolov8x
+
+  # Inference settings
+  confidence_threshold: 0.5
+  iou_threshold: 0.45
+
+  # Hardware acceleration
+  device: "cuda"  # "cuda", "cpu", "mps" (Apple Silicon)
+
+  # Classes of interest (COCO class names to detect as potential predators)
+  predator_classes:
+    - "bird"
+    - "cat"
+    - "dog"
+    - "horse"  # Could indicate intruder
+    - "cow"
+    - "bear"
+
+  # Batch processing
+  batch_size: 1
+  max_queue_size: 100
+
+alerts:
+  # Alert cooldown per device (seconds)
+  cooldown_s: 30
+
+  # Threat level actions
+  low:
+    log: true
+    notify: false
+    alarm: false
+    sprayer: false
+
+  medium:
+    log: true
+    notify: true
+    alarm: false
+    sprayer: false
+
+  high:
+    log: true
+    notify: true
+    alarm: true
+    sprayer: false
+
+  critical:
+    log: true
+    notify: true
+    alarm: true
+    sprayer: true
+
+  # Notification settings
+  notifications:
+    # Push notifications (Pushover, Pushbullet, etc.)
+    pushover:
+      enabled: false
+      user_key: ""
+      api_token: ""
+
+    # Email notifications
+    email:
+      enabled: false
+      smtp_host: "smtp.gmail.com"
+      smtp_port: 587
+      username: ""
+      password: ""
+      from_address: ""
+      to_addresses: []
+
+    # Webhook notifications
+    webhook:
+      enabled: false
+      url: ""
+      headers: {}
+
+    # Home Assistant integration
+    home_assistant:
+      enabled: false
+      url: "http://homeassistant.local:8123"
+      token: ""
+
+storage:
+  # Frame storage
+  frames_dir: "data/frames"
+  max_frames: 10000
+  retention_days: 7
+
+  # Event storage
+  events_dir: "data/events"
+  retention_days: 30
+
+  # Database
+  database_url: "sqlite:///data/garden_sentinel.db"
+
+  # Training data collection
+  training_data_dir: "data/training"
+  auto_collect_detections: true
+
+dashboard:
+  enabled: true
+  port: 8080
+  auth_enabled: false
+  username: "admin"
+  password: "changeme"
+
+logging:
+  level: "INFO"
+  file: "logs/server.log"
+  max_size_mb: 100
+  backup_count: 10

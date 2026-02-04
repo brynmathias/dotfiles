@@ -1,0 +1,109 @@
+# Garden Sentinel Edge Device Configuration
+
+device:
+  id: "garden-cam-01"  # Unique identifier for this device
+  name: "Main Garden Camera"
+  location: "chicken_coop_entrance"
+
+camera:
+  # Resolution settings
+  width: 1920
+  height: 1080
+  fps: 30
+
+  # Camera specific settings
+  rotation: 0  # 0, 90, 180, 270
+  hflip: false
+  vflip: false
+
+  # Exposure and image settings
+  auto_exposure: true
+  exposure_time_us: null  # Manual exposure in microseconds (null = auto)
+  iso: null  # Manual ISO (null = auto)
+
+  # Night vision settings (for IR cameras)
+  ir_cut_filter: auto  # auto, on, off
+  ir_led_enabled: true
+
+  # Buffer settings
+  buffer_count: 4
+
+streaming:
+  # HTTP MJPEG streaming
+  http_enabled: true
+  http_port: 8080
+  http_path: "/stream"
+
+  # RTSP streaming (requires additional setup)
+  rtsp_enabled: false
+  rtsp_port: 8554
+
+  # Quality settings
+  jpeg_quality: 85
+
+  # Frame rate for streaming (can be lower than capture)
+  stream_fps: 15
+
+server:
+  # Central server connection
+  host: "192.168.1.100"
+  port: 5000
+
+  # MQTT settings for real-time communication
+  mqtt_enabled: true
+  mqtt_broker: "192.168.1.100"
+  mqtt_port: 1883
+  mqtt_topic_prefix: "garden-sentinel"
+  mqtt_username: null
+  mqtt_password: null
+
+  # Frame upload settings
+  upload_frames: true
+  upload_interval_ms: 500  # Send frames every 500ms
+  upload_on_motion: true   # Always upload on motion detection
+
+  # Heartbeat interval
+  heartbeat_interval_s: 30
+
+gpio:
+  # Pin assignments (BCM numbering)
+  alarm_pin: 17
+  sprayer_pin: 27
+  status_led_pin: 22
+  ir_led_pin: 23
+
+  # Actuation settings
+  alarm_duration_s: 10
+  sprayer_duration_s: 5
+  sprayer_cooldown_s: 30  # Minimum time between sprayer activations
+
+edge_inference:
+  # Enable on-device inference (reduces server load)
+  enabled: false
+
+  # Accelerator type: "coral", "hailo", "cpu"
+  accelerator: "coral"
+
+  # Model paths (relative to edge device)
+  model_path: "/opt/garden-sentinel/models/predator_detector.tflite"
+
+  # Inference settings
+  confidence_threshold: 0.5
+  inference_interval_ms: 200
+
+  # Send detections to server
+  report_detections: true
+  # Only upload frames with detections
+  upload_detection_frames_only: false
+
+motion_detection:
+  enabled: true
+  sensitivity: 25  # 1-100
+  min_area: 500    # Minimum contour area to trigger
+  cooldown_s: 2    # Seconds between motion events
+
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "/var/log/garden-sentinel/edge.log"
+  max_size_mb: 50
+  backup_count: 5
