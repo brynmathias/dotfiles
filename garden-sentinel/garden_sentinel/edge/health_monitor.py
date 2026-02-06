@@ -355,6 +355,8 @@ class HealthMonitor:
     - System status (CPU temp, memory, disk, throttling)
     - Network status (connectivity, latency, WiFi signal)
     - Camera status (FPS, errors)
+
+    Optionally exports metrics to Prometheus/InfluxDB via metrics_collector.
     """
 
     def __init__(
@@ -363,6 +365,7 @@ class HealthMonitor:
         battery_monitor: Optional[BatteryMonitor] = None,
         server_url: Optional[str] = None,
         check_interval: float = 30.0,
+        metrics_collector=None,  # GardenSentinelMetricsCollector
         # Thresholds
         cpu_temp_warning: float = 70.0,
         cpu_temp_critical: float = 80.0,
@@ -375,6 +378,7 @@ class HealthMonitor:
         self.battery_monitor = battery_monitor
         self.server_url = server_url
         self.check_interval = check_interval
+        self.metrics_collector = metrics_collector
 
         # Thresholds
         self.cpu_temp_warning = cpu_temp_warning
@@ -507,7 +511,7 @@ class HealthMonitor:
         if camera and camera.status != HealthStatus.HEALTHY:
             alerts.append(f"Camera issues: {camera.error_count} errors")
 
-        return HealthReport(
+        report = HealthReport(
             device_id=self.device_id,
             timestamp=datetime.now(),
             battery=battery,
@@ -517,6 +521,51 @@ class HealthMonitor:
             overall_status=overall,
             alerts=alerts,
         )
+
+        # Export metrics to Prometheus/InfluxDB if configured
+        self._export_metrics(report)
+
+        return report
+
+    def _export_metrics(self, report: HealthReport):
+        """Export health data to metrics collector (Prometheus/InfluxDB)."""
+        if not self.metrics_collector:
+            return
+
+        mc = self.metrics_collector
+
+        # Battery metrics
+        if report.battery:
+            mc.update_battery_voltage(report.battery.voltage)
+            if report.battery.current is not None:
+                mc.update_battery_current(report.battery.current)
+            if report.battery.percentage is not None:
+                mc.update_battery_percentage(report.battery.percentage)
+            if report.battery.power is not None:
+                mc.update_battery_power(report.battery.power)
+
+        # System metrics
+        if report.system:
+            mc.update_cpu_temperature(report.system.cpu_temp)
+            mc.update_cpu_usage(report.system.cpu_usage)
+            mc.update_memory_usage(report.system.memory_used)
+            mc.update_disk_usage(report.system.disk_used)
+            mc.update_throttled(report.system.is_throttled)
+
+        # Network metrics
+        if report.network:
+            if report.network.wifi_signal_percent is not None:
+                mc.update_wifi_signal(report.network.wifi_signal_percent)
+            if report.network.latency_ms is not None:
+                mc.update_server_latency(report.network.latency_ms)
+
+        # Camera metrics
+        if report.camera:
+            mc.update_camera_fps(report.camera.fps)
+            mc.update_camera_errors(report.camera.error_count)
+
+        # Overall health status
+        mc.update_health_status(report.overall_status.value)
 
     async def _collect_battery(self) -> Optional[BatteryStatus]:
         """Collect battery status."""
