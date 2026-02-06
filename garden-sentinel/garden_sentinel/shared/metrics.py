@@ -646,6 +646,25 @@ class GardenSentinelMetricsCollector:
             help_text="Total spray activations",
         )
 
+    def increment_sprays_by_predator(self, predator_type: str):
+        labels = {**self._labels, "predator_type": predator_type}
+        self.registry.counter(
+            "sprays_total",
+            1,
+            labels,
+            help_text="Total spray activations",
+        )
+
+    def increment_deterred(self, predator_type: str):
+        """Increment when a predator was successfully deterred (left within 30s of spray)."""
+        labels = {**self._labels, "predator_type": predator_type}
+        self.registry.counter(
+            "deterred_total",
+            1,
+            labels,
+            help_text="Total successful deterrence (predator left within 30s of spray)",
+        )
+
     def update_inference_time(self, time_ms: float):
         self.registry.histogram(
             "inference_time_ms",
