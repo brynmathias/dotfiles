@@ -46,6 +46,8 @@ _detection_pipeline = None
 _alert_manager = None
 _storage_manager = None
 _mqtt_handler = None
+_camera_coordinator = None
+_pattern_analyzer = None
 _connected_websockets: list[WebSocket] = []
 
 # Device stream registry: device_id -> {"url": stream_url, "last_frame": bytes, "last_update": timestamp}
@@ -57,14 +59,19 @@ def create_app(
     alert_manager,
     storage_manager,
     mqtt_handler=None,
+    camera_coordinator=None,
+    pattern_analyzer=None,
 ) -> FastAPI:
     """Create and configure the FastAPI application."""
     global _detection_pipeline, _alert_manager, _storage_manager, _mqtt_handler
+    global _camera_coordinator, _pattern_analyzer
 
     _detection_pipeline = detection_pipeline
     _alert_manager = alert_manager
     _storage_manager = storage_manager
     _mqtt_handler = mqtt_handler
+    _camera_coordinator = camera_coordinator
+    _pattern_analyzer = pattern_analyzer
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -421,6 +428,136 @@ def register_routes(app: FastAPI):
             "detection_pipeline": _detection_pipeline.is_running if _detection_pipeline else False,
             "timestamp": datetime.now().isoformat(),
         }
+
+    # ==================== Multi-Camera Coordination ====================
+
+    @app.get("/api/coordination/targets")
+    async def get_active_targets():
+        """Get all currently tracked targets across cameras."""
+        if not _camera_coordinator:
+            return {"targets": []}
+
+        targets = _camera_coordinator.get_active_targets()
+        return {
+            "targets": [
+                {
+                    "target_id": t.target_id,
+                    "predator_type": t.predator_type,
+                    "threat_level": t.threat_level.value,
+                    "camera_count": t.camera_count,
+                    "assigned_camera": t.assigned_camera,
+                    "times_sprayed": t.times_sprayed,
+                    "age_seconds": t.age,
+                    "velocity": {"x": t.velocity_x, "y": t.velocity_y},
+                }
+                for t in targets
+            ]
+        }
+
+    @app.get("/api/coordination/cameras")
+    async def get_camera_status():
+        """Get status of all coordinated cameras."""
+        if not _camera_coordinator:
+            return {"cameras": {}}
+
+        return {"cameras": _camera_coordinator.get_camera_status()}
+
+    @app.get("/api/coordination/targets/{target_id}")
+    async def get_target(target_id: str):
+        """Get details of a specific target."""
+        if not _camera_coordinator:
+            raise HTTPException(status_code=404, detail="Coordinator not available")
+
+        target = _camera_coordinator.get_target(target_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="Target not found")
+
+        return {
+            "target_id": target.target_id,
+            "predator_type": target.predator_type,
+            "threat_level": target.threat_level.value,
+            "camera_count": target.camera_count,
+            "assigned_camera": target.assigned_camera,
+            "times_sprayed": target.times_sprayed,
+            "first_seen": target.first_seen,
+            "last_seen": target.last_seen,
+            "cameras_detecting": list(target.camera_detections.keys()),
+        }
+
+    # ==================== Pattern Analytics ====================
+
+    @app.get("/api/analytics/patterns")
+    async def get_patterns():
+        """Get learned predator patterns."""
+        if not _pattern_analyzer:
+            return {"patterns": {}}
+
+        patterns = _pattern_analyzer.get_all_patterns()
+        return {
+            "patterns": {
+                predator_type: {
+                    "total_visits": p.total_visits,
+                    "peak_windows": [str(w) for w in p.peak_windows],
+                    "avg_visit_duration": p.avg_visit_duration,
+                    "spray_effectiveness": p.spray_effectiveness,
+                    "recent_trend": p.recent_trend,
+                    "last_visit": p.last_visit.isoformat() if p.last_visit else None,
+                    "hourly_distribution": p.hourly_counts,
+                    "daily_distribution": p.daily_counts,
+                }
+                for predator_type, p in patterns.items()
+            }
+        }
+
+    @app.get("/api/analytics/patterns/{predator_type}")
+    async def get_pattern(predator_type: str):
+        """Get pattern for a specific predator type."""
+        if not _pattern_analyzer:
+            raise HTTPException(status_code=404, detail="Analytics not available")
+
+        pattern = _pattern_analyzer.get_pattern(predator_type)
+        if not pattern:
+            raise HTTPException(status_code=404, detail="No pattern for this predator type")
+
+        return {
+            "predator_type": predator_type,
+            "total_visits": pattern.total_visits,
+            "peak_windows": [str(w) for w in pattern.peak_windows],
+            "avg_visit_duration": pattern.avg_visit_duration,
+            "spray_effectiveness": pattern.spray_effectiveness,
+            "visits_sprayed": pattern.visits_sprayed,
+            "visits_deterred": pattern.visits_deterred,
+            "recent_trend": pattern.recent_trend,
+            "last_visit": pattern.last_visit.isoformat() if pattern.last_visit else None,
+            "hourly_distribution": pattern.hourly_counts,
+            "daily_distribution": pattern.daily_counts,
+            "location_hotspots": pattern.location_hotspots,
+        }
+
+    @app.get("/api/analytics/risk")
+    async def get_current_risk():
+        """Get current risk levels for all predator types."""
+        if not _pattern_analyzer:
+            return {"risk_levels": {}}
+
+        return {"risk_levels": _pattern_analyzer.get_current_risk_levels()}
+
+    @app.get("/api/analytics/statistics")
+    async def get_analytics_statistics():
+        """Get overall analytics statistics."""
+        if not _pattern_analyzer:
+            return {}
+
+        return await _pattern_analyzer.get_statistics()
+
+    @app.get("/api/analytics/daily")
+    async def get_daily_breakdown(days: int = 7):
+        """Get daily visit breakdown."""
+        if not _pattern_analyzer:
+            return {"days": []}
+
+        breakdown = await _pattern_analyzer.get_daily_breakdown(days)
+        return {"days": breakdown}
 
 
 async def broadcast_stats_loop():
