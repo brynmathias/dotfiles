@@ -48,6 +48,7 @@ _storage_manager = None
 _mqtt_handler = None
 _camera_coordinator = None
 _pattern_analyzer = None
+_health_aggregator = None
 _connected_websockets: list[WebSocket] = []
 
 # Device stream registry: device_id -> {"url": stream_url, "last_frame": bytes, "last_update": timestamp}
@@ -61,10 +62,11 @@ def create_app(
     mqtt_handler=None,
     camera_coordinator=None,
     pattern_analyzer=None,
+    health_aggregator=None,
 ) -> FastAPI:
     """Create and configure the FastAPI application."""
     global _detection_pipeline, _alert_manager, _storage_manager, _mqtt_handler
-    global _camera_coordinator, _pattern_analyzer
+    global _camera_coordinator, _pattern_analyzer, _health_aggregator
 
     _detection_pipeline = detection_pipeline
     _alert_manager = alert_manager
@@ -72,6 +74,7 @@ def create_app(
     _mqtt_handler = mqtt_handler
     _camera_coordinator = camera_coordinator
     _pattern_analyzer = pattern_analyzer
+    _health_aggregator = health_aggregator
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -558,6 +561,55 @@ def register_routes(app: FastAPI):
 
         breakdown = await _pattern_analyzer.get_daily_breakdown(days)
         return {"days": breakdown}
+
+    # ==================== Health Monitoring ====================
+
+    @app.post("/api/health/report")
+    async def submit_health_report(report: dict):
+        """Receive health report from an edge device."""
+        if not _health_aggregator:
+            return {"status": "ok", "message": "Health aggregator not configured"}
+
+        await _health_aggregator.process_health_report(report)
+        return {"status": "ok"}
+
+    @app.get("/api/health/fleet")
+    async def get_fleet_health():
+        """Get aggregated health for all devices."""
+        if not _health_aggregator:
+            return {"error": "Health aggregator not configured"}
+
+        return _health_aggregator.get_fleet_health().to_dict()
+
+    @app.get("/api/health/devices")
+    async def get_all_device_health():
+        """Get health status for all devices."""
+        if not _health_aggregator:
+            return {"devices": []}
+
+        devices = _health_aggregator.get_all_devices()
+        return {"devices": [d.to_dict() for d in devices]}
+
+    @app.get("/api/health/devices/{device_id}")
+    async def get_device_health(device_id: str):
+        """Get health status for a specific device."""
+        if not _health_aggregator:
+            raise HTTPException(status_code=404, detail="Health aggregator not configured")
+
+        device = _health_aggregator.get_device_health(device_id)
+        if not device:
+            raise HTTPException(status_code=404, detail="Device not found")
+
+        return device.to_dict()
+
+    @app.get("/api/health/devices/{device_id}/history")
+    async def get_device_health_history(device_id: str, hours: int = 24):
+        """Get health history for a specific device."""
+        if not _health_aggregator:
+            return {"history": []}
+
+        history = await _health_aggregator.get_device_history(device_id, hours)
+        return {"device_id": device_id, "hours": hours, "history": history}
 
 
 async def broadcast_stats_loop():
