@@ -1,0 +1,248 @@
+# Garden Sentinel Server Configuration
+# Copy to config/config.yaml
+
+server:
+  host: "0.0.0.0"
+  port: 5000
+
+# Detection pipeline
+detection:
+  model_path: "models/predator_detector.pt"
+  device: "cuda"  # cuda, cpu
+  confidence_threshold: 0.5
+  nms_threshold: 0.4
+  batch_size: 4
+  max_queue_size: 100
+
+# Storage
+storage:
+  db_path: "data/garden_sentinel.db"
+  frames_path: "data/frames"
+  events_path: "data/events"
+  retention_days: 30
+  max_storage_gb: 50
+
+# Camera registrations
+cameras:
+  - device_id: "garden-cam-01"
+    name: "Front Garden"
+    position_x: 0.0
+    position_y: 0.0
+    position_z: 2.5
+    heading: 180  # degrees, 0 = north
+    fov_horizontal: 62
+    fov_vertical: 49
+    has_sprayer: true
+    has_pan_tilt: true
+    sprayer_range: 5.0
+
+  - device_id: "garden-cam-02"
+    name: "Back Fence"
+    position_x: 20.0
+    position_y: 0.0
+    position_z: 2.5
+    heading: 0
+    fov_horizontal: 90
+    fov_vertical: 60
+    has_sprayer: true
+    has_pan_tilt: false
+    sprayer_range: 4.0
+
+# Multi-camera coordination
+coordination:
+  correlation_threshold: 0.5
+  target_timeout: 10.0
+  min_confidence_to_engage: 0.6
+  engagement_cooldown: 30.0
+
+# Alert configuration
+alerts:
+  cooldown_s: 30
+
+  low:
+    log: true
+    notify: false
+    alarm: false
+    sprayer: false
+
+  medium:
+    log: true
+    notify: false
+    alarm: false
+    sprayer: false
+
+  high:
+    log: true
+    notify: true
+    alarm: true
+    sprayer: true
+
+  critical:
+    log: true
+    notify: true
+    alarm: true
+    sprayer: true
+
+  notifications:
+    pushover:
+      enabled: false
+      user_key: ""
+      api_token: ""
+
+    email:
+      enabled: false
+      smtp_host: "smtp.gmail.com"
+      smtp_port: 587
+      username: ""
+      password: ""
+      from_address: ""
+      to_addresses: []
+
+    webhook:
+      enabled: false
+      url: ""
+
+    home_assistant:
+      enabled: false
+      url: "http://homeassistant.local:8123"
+      token: ""
+
+# Push notifications
+push_notifications:
+  pushover:
+    enabled: false
+    user_key: ""
+    api_token: ""
+
+  ntfy:
+    enabled: true
+    server_url: "https://ntfy.sh"
+    topic: "garden-sentinel"
+
+  gotify:
+    enabled: false
+    server_url: ""
+    app_token: ""
+
+# MQTT
+mqtt:
+  enabled: false
+  broker: "localhost"
+  port: 1883
+  topic_prefix: "garden-sentinel"
+  username: ""
+  password: ""
+
+# Analytics
+analytics:
+  prediction_lookahead_hours: 2
+  min_visits_for_pattern: 3
+
+# Metrics
+metrics:
+  prometheus_enabled: true
+  prometheus_port: 9090
+
+# Health monitoring
+health:
+  offline_threshold: 120  # seconds before marking device offline
+
+# Spatial configuration
+spatial:
+  name: "My Garden"
+  track_timeout: 60.0
+  deterrence_window: 30.0
+
+  # GPS origin for coordinate conversion (optional)
+  gps_origin:
+    latitude: 51.5074
+    longitude: -0.1278
+    altitude: 0.0
+
+  # Garden boundary (polygon vertices in meters from origin)
+  boundary:
+    - [0, 0]
+    - [30, 0]
+    - [30, 20]
+    - [0, 20]
+
+  # Zones
+  zones:
+    - id: "chicken_run"
+      name: "Chicken Run"
+      type: "protected"
+      vertices:
+        - [10, 5]
+        - [20, 5]
+        - [20, 15]
+        - [10, 15]
+
+    - id: "feeding_area"
+      name: "Feeding Area"
+      type: "feeding"
+      vertices:
+        - [12, 8]
+        - [18, 8]
+        - [18, 12]
+        - [12, 12]
+
+    - id: "north_perimeter"
+      name: "North Perimeter"
+      type: "perimeter"
+      vertices:
+        - [0, 18]
+        - [30, 18]
+        - [30, 20]
+        - [0, 20]
+
+    - id: "west_entry"
+      name: "West Entry Point"
+      type: "entry_point"
+      vertices:
+        - [0, 8]
+        - [2, 8]
+        - [2, 12]
+        - [0, 12]
+
+    - id: "east_entry"
+      name: "East Entry Point"
+      type: "entry_point"
+      vertices:
+        - [28, 8]
+        - [30, 8]
+        - [30, 12]
+        - [28, 12]
+
+  # Camera placements for map visualization
+  cameras:
+    - id: "garden-cam-01"
+      name: "Front Garden"
+      x: 15.0
+      y: 0.0
+      heading: 0
+      fov: 90
+      range: 15.0
+
+    - id: "garden-cam-02"
+      name: "Back Fence"
+      x: 15.0
+      y: 20.0
+      heading: 180
+      fov: 90
+      range: 15.0
+
+  # Drone flight paths (optional)
+  flight_paths:
+    - id: "perimeter_patrol"
+      name: "Perimeter Patrol"
+      waypoints:
+        - [2, 2]
+        - [28, 2]
+        - [28, 18]
+        - [2, 18]
+      altitudes: [15, 15, 15, 15]
+      is_loop: true
+
+# Logging
+logging:
+  level: "INFO"

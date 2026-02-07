@@ -29,6 +29,28 @@ from garden_sentinel.server.api.server import create_app, broadcast_alert
 from garden_sentinel.server.api.mqtt_handler import MQTTHandler
 from garden_sentinel.server.coordination import CameraCoordinator, CameraRegistration
 from garden_sentinel.server.analytics import PatternAnalyzer, VisitPrediction
+from garden_sentinel.server.health import HealthAggregator
+from garden_sentinel.server.spatial import (
+    GardenMap,
+    Zone,
+    ZoneType,
+    CameraPlacement,
+    FlightPath,
+    Point,
+    Polygon,
+    ZoneTracker,
+    DeterrenceTracker,
+    MapRenderer,
+    MapAPIEndpoint,
+    DroneTracker,
+    GPSConverter,
+    GPSCoordinate,
+)
+from garden_sentinel.shared.metrics import (
+    MetricsRegistry,
+    GardenSentinelMetricsCollector,
+    PrometheusExporter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +126,71 @@ class GardenSentinelServer:
             min_visits_for_pattern=analytics_config.get("min_visits_for_pattern", 3),
         )
 
+        # Metrics
+        metrics_config = self.config.get("metrics", {})
+        self.metrics_registry = MetricsRegistry()
+        self.metrics_collector = GardenSentinelMetricsCollector(
+            registry=self.metrics_registry,
+            device_id="server",
+        )
+
+        # Prometheus exporter
+        self.prometheus_exporter = None
+        if metrics_config.get("prometheus_enabled", True):
+            self.prometheus_exporter = PrometheusExporter(
+                registry=self.metrics_registry,
+                port=metrics_config.get("prometheus_port", 9090),
+            )
+
+        # Health aggregator
+        health_config = self.config.get("health", {})
+        self.health_aggregator = HealthAggregator(
+            db_path=db_path.parent / "health.db",
+            offline_threshold=health_config.get("offline_threshold", 120.0),
+        )
+
+        # Spatial configuration - garden map
+        spatial_config = self.config.get("spatial", {})
+        self.garden_map = self._create_garden_map(spatial_config)
+
+        # Zone tracker for predator entry/exit detection
+        self.zone_tracker = ZoneTracker(
+            garden_map=self.garden_map,
+            track_timeout=spatial_config.get("track_timeout", 60.0),
+        )
+
+        # Deterrence tracker
+        protected_zone_ids = [
+            z.zone_id for z in self.garden_map.zones
+            if z.zone_type == ZoneType.PROTECTED
+        ]
+        self.deterrence_tracker = DeterrenceTracker(
+            zone_tracker=self.zone_tracker,
+            protected_zone_ids=protected_zone_ids,
+            deterrence_window=spatial_config.get("deterrence_window", 30.0),
+        )
+
+        # Map renderer for visualization
+        self.map_renderer = MapRenderer(
+            garden_map=self.garden_map,
+            zone_tracker=self.zone_tracker,
+        )
+        self.map_api = MapAPIEndpoint(self.garden_map, self.zone_tracker)
+
+        # Drone tracker for mobile cameras
+        gps_origin = spatial_config.get("gps_origin", {})
+        self.gps_converter = None
+        if gps_origin:
+            self.gps_converter = GPSConverter(
+                origin=GPSCoordinate(
+                    latitude=gps_origin.get("latitude", 0.0),
+                    longitude=gps_origin.get("longitude", 0.0),
+                    altitude=gps_origin.get("altitude", 0.0),
+                )
+            )
+
+        self.drone_tracker = DroneTracker(gps_converter=self.gps_converter)
+
         # FastAPI app
         self.app = create_app(
             detection_pipeline=self.detection_pipeline,
@@ -112,6 +199,10 @@ class GardenSentinelServer:
             mqtt_handler=self.mqtt_handler,
             camera_coordinator=self.camera_coordinator,
             pattern_analyzer=self.pattern_analyzer,
+            health_aggregator=self.health_aggregator,
+            map_api=self.map_api,
+            drone_tracker=self.drone_tracker,
+            metrics_collector=self.metrics_collector,
         )
 
     def _load_config(self, config_path: str) -> dict:
@@ -167,11 +258,80 @@ class GardenSentinelServer:
             notifications=notifications,
         )
 
+    def _create_garden_map(self, config: dict) -> GardenMap:
+        """Create garden map from configuration."""
+        # Parse boundary
+        boundary = None
+        if "boundary" in config:
+            boundary_points = [Point(p[0], p[1]) for p in config["boundary"]]
+            boundary = Polygon(boundary_points)
+
+        # Parse zones
+        zones = []
+        for zone_config in config.get("zones", []):
+            vertices = [Point(p[0], p[1]) for p in zone_config["vertices"]]
+            zone = Zone(
+                zone_id=zone_config["id"],
+                name=zone_config["name"],
+                zone_type=ZoneType(zone_config.get("type", "protected")),
+                polygon=Polygon(vertices),
+            )
+            zones.append(zone)
+
+        # Parse camera placements
+        cameras = []
+        for cam_config in config.get("cameras", []):
+            camera = CameraPlacement(
+                camera_id=cam_config["id"],
+                name=cam_config.get("name", cam_config["id"]),
+                position=Point(cam_config["x"], cam_config["y"]),
+                heading=cam_config.get("heading", 0.0),
+                fov=cam_config.get("fov", 90.0),
+                range=cam_config.get("range", 15.0),
+                altitude=cam_config.get("altitude"),
+                is_mobile=cam_config.get("is_mobile", False),
+            )
+            cameras.append(camera)
+
+        # Parse flight paths
+        flight_paths = []
+        for path_config in config.get("flight_paths", []):
+            waypoints = [Point(p[0], p[1]) for p in path_config["waypoints"]]
+            flight_path = FlightPath(
+                path_id=path_config["id"],
+                name=path_config.get("name", path_config["id"]),
+                waypoints=waypoints,
+                altitudes=path_config.get("altitudes", [20.0] * len(waypoints)),
+                is_loop=path_config.get("is_loop", True),
+            )
+            flight_paths.append(flight_path)
+
+        # GPS origin for coordinate conversion
+        gps_origin = None
+        if "gps_origin" in config:
+            gps_origin = GPSCoordinate(
+                latitude=config["gps_origin"]["latitude"],
+                longitude=config["gps_origin"]["longitude"],
+                altitude=config["gps_origin"].get("altitude", 0.0),
+            )
+
+        return GardenMap(
+            name=config.get("name", "Garden"),
+            boundary=boundary,
+            zones=zones,
+            cameras=cameras,
+            flight_paths=flight_paths,
+            gps_origin=gps_origin,
+        )
+
     def _setup_callbacks(self):
         """Set up callbacks between components."""
 
-        # Detection results -> Storage + Alerts + Coordinator + Pattern Analyzer
+        # Detection results -> Storage + Alerts + Coordinator + Pattern Analyzer + Zone Tracker
         def on_detection_result(result):
+            # Track metrics
+            self.metrics_collector.increment_frames_processed()
+
             # Save frame if there are detections
             if result.detections and result.annotated_frame is not None:
                 self.storage_manager.save_frame(
@@ -183,6 +343,11 @@ class GardenSentinelServer:
 
             # Process through multi-camera coordinator
             for detection in result.detections:
+                # Track detection metrics
+                self.metrics_collector.increment_detections(
+                    detection.predator_type if hasattr(detection, 'predator_type') else detection.class_name
+                )
+
                 asyncio.create_task(
                     self.camera_coordinator.process_detection(result.device_id, detection)
                 )
@@ -197,6 +362,28 @@ class GardenSentinelServer:
                         bbox_y=detection.bbox.center_y if detection.bbox else None,
                     )
                 )
+
+                # Update zone tracker if we have world position
+                if hasattr(detection, 'world_position') and detection.world_position:
+                    track_id = getattr(detection, 'track_id', f"{result.device_id}_{id(detection)}")
+                    predator_type = getattr(detection, 'predator_type', detection.class_name)
+
+                    zone_events = self.zone_tracker.update_position(
+                        track_id=track_id,
+                        predator_type=predator_type,
+                        position=Point(detection.world_position[0], detection.world_position[1]),
+                        timestamp=result.timestamp,
+                    )
+
+                    # Broadcast zone events to dashboard
+                    for event in zone_events:
+                        asyncio.create_task(broadcast_alert({
+                            "type": "zone_event",
+                            "event_type": event.event_type.value,
+                            "zone_name": event.zone_name,
+                            "predator_type": event.predator_type,
+                            "track_id": event.track_id,
+                        }))
 
         self.detection_pipeline.add_result_callback(on_detection_result)
 
@@ -229,6 +416,13 @@ class GardenSentinelServer:
                     "target_id": target.target_id,
                     "duration": 3.0,
                 })
+
+            # Track spray in deterrence tracker
+            self.deterrence_tracker.record_spray(target.target_id)
+
+            # Track metrics
+            self.metrics_collector.increment_sprays(target.predator_type)
+
             # Record spray event for pattern analysis
             await self.pattern_analyzer.record_spray_event(target.predator_type)
 
@@ -247,9 +441,18 @@ class GardenSentinelServer:
         async def on_target_lost(target):
             """Called when a target is lost."""
             logger.info(f"Target lost: {target.target_id} ({target.predator_type})")
-            # Check if it was deterred (left within 30s of spray)
-            if target.times_sprayed > 0 and target.age < 30:
-                await self.pattern_analyzer.record_deterrence(target.predator_type)
+
+            # Check each protected zone for deterrence
+            for zone_id in self.deterrence_tracker.protected_zone_ids:
+                if self.zone_tracker.check_deterred(target.target_id, zone_id):
+                    # Target was successfully deterred
+                    logger.info(f"Target {target.target_id} was deterred from zone {zone_id}")
+                    self.metrics_collector.increment_deterred(target.predator_type)
+                    await self.pattern_analyzer.record_deterrence(target.predator_type)
+                    break
+
+            # Clean up from zone tracker
+            self.zone_tracker.cleanup_expired_tracks()
 
         self.camera_coordinator.set_callbacks(
             on_engage=on_coordinator_engage,
@@ -317,6 +520,14 @@ class GardenSentinelServer:
         if self.mqtt_handler:
             self.mqtt_handler.start()
 
+        # Start Prometheus exporter
+        if self.prometheus_exporter:
+            self.prometheus_exporter.start()
+            logger.info(f"Prometheus metrics available at http://localhost:{self.prometheus_exporter.port}/metrics")
+
+        # Start health aggregator
+        self.health_aggregator.start()
+
         # Set up callbacks
         self._setup_callbacks()
 
@@ -326,6 +537,10 @@ class GardenSentinelServer:
         loop.run_until_complete(self.start_async())
 
         logger.info("Garden Sentinel Server started")
+        logger.info(f"  - Detection pipeline: active")
+        logger.info(f"  - Cameras registered: {len(self.camera_coordinator.cameras)}")
+        logger.info(f"  - Zones configured: {len(self.garden_map.zones)}")
+        logger.info(f"  - Flight paths: {len(self.garden_map.flight_paths)}")
         return True
 
     def stop(self):
@@ -340,6 +555,11 @@ class GardenSentinelServer:
 
         if self.mqtt_handler:
             self.mqtt_handler.stop()
+
+        if self.prometheus_exporter:
+            self.prometheus_exporter.stop()
+
+        self.health_aggregator.stop()
 
         self.storage_manager.close()
 
