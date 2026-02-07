@@ -1,0 +1,46 @@
+[Unit]
+Description=Garden Sentinel Edge Device
+Documentation=https://github.com/brynmathias/garden-sentinel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=garden-sentinel
+Group=garden-sentinel
+
+# Working directory
+WorkingDirectory=/opt/garden-sentinel
+
+# Main process
+ExecStart=/opt/garden-sentinel/venv/bin/python -m garden_sentinel.edge.main -c /etc/garden-sentinel/edge.yaml
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+# Hardware access
+SupplementaryGroups=video gpio i2c spi
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=80%
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/garden-sentinel /var/log/garden-sentinel
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=garden-sentinel-edge
+
+[Install]
+WantedBy=multi-user.target
