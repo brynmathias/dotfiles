@@ -1,0 +1,182 @@
+name: Build Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version (e.g., 0.1.0)'
+        required: true
+        default: '0.1.0'
+
+defaults:
+  run:
+    working-directory: garden-sentinel
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio
+          pip install numpy pyyaml aiohttp websockets
+
+      - name: Run tests
+        run: pytest tests/ -v
+
+  build-packages:
+    name: Build .deb and .rpm
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby for fpm
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Install fpm and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+          gem install fpm
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            # Extract version from tag (v0.1.0 -> 0.1.0)
+            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build packages
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          chmod +x packaging/build-packages.sh
+          ./packaging/build-packages.sh -v "$VERSION" all
+
+      - name: List built packages
+        run: ls -la dist/
+
+      - name: Upload edge .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: garden-sentinel-edge-deb
+          path: garden-sentinel/dist/*edge*.deb
+          retention-days: 30
+
+      - name: Upload edge .rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: garden-sentinel-edge-rpm
+          path: garden-sentinel/dist/*edge*.rpm
+          retention-days: 30
+
+      - name: Upload server .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: garden-sentinel-server-deb
+          path: garden-sentinel/dist/*server*.deb
+          retention-days: 30
+
+      - name: Upload server .rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: garden-sentinel-server-rpm
+          path: garden-sentinel/dist/*server*.rpm
+          retention-days: 30
+
+  build-docker:
+    name: Build Docker Images
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build edge image
+        uses: docker/build-push-action@v5
+        with:
+          context: garden-sentinel
+          file: garden-sentinel/Dockerfile.edge
+          push: false
+          tags: garden-sentinel-edge:${{ steps.version.outputs.VERSION }}
+          outputs: type=docker,dest=/tmp/edge-image.tar
+
+      - name: Build server image
+        uses: docker/build-push-action@v5
+        with:
+          context: garden-sentinel
+          file: garden-sentinel/Dockerfile.server
+          push: false
+          tags: garden-sentinel-server:${{ steps.version.outputs.VERSION }}
+          outputs: type=docker,dest=/tmp/server-image.tar
+
+      - name: Upload edge Docker image
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-edge-image
+          path: /tmp/edge-image.tar
+          retention-days: 7
+
+      - name: Upload server Docker image
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-server-image
+          path: /tmp/server-image.tar
+          retention-days: 7
+
+  release:
+    name: Create Release
+    needs: [build-packages, build-docker]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}

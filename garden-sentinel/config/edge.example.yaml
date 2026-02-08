@@ -1,0 +1,103 @@
+# Garden Sentinel Edge Device Configuration
+# Copy to /etc/garden-sentinel/edge.yaml
+
+device:
+  id: "garden-cam-01"
+  name: "Front Garden Camera"
+  location: "front_fence"
+
+# Camera settings
+camera:
+  width: 1920
+  height: 1080
+  fps: 30
+  rotation: 0  # 0, 90, 180, 270
+
+# Server connection
+server:
+  host: "192.168.1.100"
+  port: 5000
+  reconnect_interval: 5
+  use_ssl: false
+
+# HTTP streaming
+streaming:
+  http_enabled: true
+  http_port: 8080
+  http_path: "/stream"
+  jpeg_quality: 85
+  stream_fps: 15
+  rtsp_enabled: false
+  rtsp_port: 8554
+
+# Motion detection
+motion_detection:
+  enabled: true
+  sensitivity: 25
+  min_area: 500
+  blur_size: 21
+
+# Edge inference (on-device detection)
+edge_inference:
+  enabled: true
+  accelerator: "coral"  # coral, hailo, cpu
+  model_path: "/opt/garden-sentinel/models/predator_detector.tflite"
+  confidence_threshold: 0.5
+  nms_threshold: 0.4
+
+# GPIO control
+gpio:
+  status_led_pin: 17
+  alarm_pin: 18
+  sprayer_pin: 27
+  motion_sensor_pin: 22
+  servo_pan_pin: 12
+  servo_tilt_pin: 13
+
+# Smart targeting system
+targeting:
+  enabled: true
+  lead_time: 0.2  # seconds to lead moving targets
+  spray_duration: 2.0  # default spray duration
+  cooldown: 5.0  # seconds between sprays
+  # Pan/tilt calibration
+  pan_min: -90
+  pan_max: 90
+  tilt_min: -45
+  tilt_max: 45
+
+# Health monitoring
+health:
+  check_interval: 30  # seconds
+  battery_monitor: "ina219"  # ina219, ads1115, none
+  i2c_address: 0x40
+  battery_capacity_ah: 10.0
+  low_battery_threshold: 20  # percent
+
+# Metrics collection
+metrics:
+  prometheus_enabled: true
+  prometheus_port: 9091
+
+# Offline mode (when server unreachable)
+offline:
+  enabled: true
+  storage_path: "/var/lib/garden-sentinel/offline"
+  max_storage_mb: 1000
+  sync_on_reconnect: true
+
+# Event recording
+recorder:
+  enabled: true
+  storage_path: "/var/lib/garden-sentinel/recordings"
+  pre_buffer_seconds: 5
+  post_buffer_seconds: 10
+  max_clip_length: 60
+  format: "mp4"
+
+# Logging
+logging:
+  level: "INFO"
+  file: "/var/log/garden-sentinel/edge.log"
+  max_size_mb: 50
+  backup_count: 5

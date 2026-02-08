@@ -1,0 +1,61 @@
+# Garden Sentinel Edge Device Docker Image
+# For Raspberry Pi (ARM64)
+
+FROM python:3.11-slim-bookworm
+
+LABEL maintainer="Garden Sentinel"
+LABEL description="Garden Sentinel Edge Device for Raspberry Pi"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libopencv-dev \
+    libatlas-base-dev \
+    libjpeg-dev \
+    i2c-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app user
+RUN useradd --system --no-create-home --shell /usr/sbin/nologin garden-sentinel
+
+# Create directories
+RUN mkdir -p /opt/garden-sentinel /var/lib/garden-sentinel /var/log/garden-sentinel \
+    && chown -R garden-sentinel:garden-sentinel /opt/garden-sentinel /var/lib/garden-sentinel /var/log/garden-sentinel
+
+WORKDIR /opt/garden-sentinel
+
+# Install Python dependencies
+COPY requirements-edge.txt* ./
+RUN pip install --no-cache-dir \
+    numpy \
+    opencv-python-headless \
+    pillow \
+    pyyaml \
+    aiohttp \
+    websockets \
+    smbus2
+
+# Copy application
+COPY garden_sentinel ./garden_sentinel
+COPY config ./config
+
+# Set ownership
+RUN chown -R garden-sentinel:garden-sentinel /opt/garden-sentinel
+
+USER garden-sentinel
+
+# Environment
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
+
+# Default command
+CMD ["python", "-m", "garden_sentinel.edge.main"]
+
+# Expose streaming port
+EXPOSE 8080
+
+# Mount points
+VOLUME ["/etc/garden-sentinel", "/var/lib/garden-sentinel", "/var/log/garden-sentinel"]

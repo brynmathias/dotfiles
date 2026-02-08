@@ -10,6 +10,17 @@ from .protocol import (
     ServerCommand,
     AlertEvent,
 )
+from .metrics import (
+    MetricsRegistry,
+    MetricType,
+    MetricValue,
+    PrometheusExporter,
+    InfluxDBExporter,
+    StatsDExporter,
+    GardenSentinelMetricsCollector,
+    get_registry,
+    create_exporter_from_config,
+)
 
 __all__ = [
     "MessageType",
@@ -22,4 +33,14 @@ __all__ = [
     "EdgeMessage",
     "ServerCommand",
     "AlertEvent",
+    # Metrics
+    "MetricsRegistry",
+    "MetricType",
+    "MetricValue",
+    "PrometheusExporter",
+    "InfluxDBExporter",
+    "StatsDExporter",
+    "GardenSentinelMetricsCollector",
+    "get_registry",
+    "create_exporter_from_config",
 ]

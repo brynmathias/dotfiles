@@ -1,0 +1,45 @@
+[Unit]
+Description=Garden Sentinel Server
+Documentation=https://github.com/brynmathias/garden-sentinel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=garden-sentinel
+Group=garden-sentinel
+
+# Working directory
+WorkingDirectory=/opt/garden-sentinel
+
+# Main process
+ExecStart=/opt/garden-sentinel/venv/bin/python -m garden_sentinel.server.main -c /etc/garden-sentinel/server.yaml
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+# GPU access (for CUDA inference)
+SupplementaryGroups=video render
+
+# Resource limits (adjust based on your server)
+# MemoryMax=4G
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/garden-sentinel /var/log/garden-sentinel /opt/garden-sentinel/data
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=garden-sentinel-server
+
+[Install]
+WantedBy=multi-user.target

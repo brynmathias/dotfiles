@@ -23,6 +23,15 @@ from garden_sentinel.edge.edge_inference import EdgeInference, InferenceConfig
 from garden_sentinel.edge.gpio_controller import GPIOController, GPIOConfig
 from garden_sentinel.edge.motion_detector import MotionDetector, MotionConfig
 from garden_sentinel.edge.streaming import StreamingServer
+from garden_sentinel.edge.health_monitor import HealthMonitor, INA219Monitor
+from garden_sentinel.edge.targeting import TargetingSystem, TargetingConfig
+from garden_sentinel.edge.offline_mode import OfflineManager, OfflineConfig
+from garden_sentinel.edge.recorder import EventRecorder, RecorderConfig
+from garden_sentinel.shared.metrics import (
+    MetricsRegistry,
+    GardenSentinelMetricsCollector,
+    PrometheusExporter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +72,62 @@ class GardenSentinelEdge:
             jpeg_quality=streaming_config.get("jpeg_quality", 85),
             stream_fps=streaming_config.get("stream_fps", 15),
         ) if streaming_config.get("http_enabled", True) else None
+
+        # Metrics collection
+        metrics_config = self.config.get("metrics", {})
+        self.metrics_registry = MetricsRegistry()
+        self.metrics_collector = GardenSentinelMetricsCollector(
+            registry=self.metrics_registry,
+            device_id=self.config["device"]["id"],
+        )
+
+        # Prometheus exporter
+        self.prometheus_exporter = None
+        if metrics_config.get("prometheus_enabled", False):
+            self.prometheus_exporter = PrometheusExporter(
+                registry=self.metrics_registry,
+                port=metrics_config.get("prometheus_port", 9090),
+            )
+
+        # Health monitoring
+        health_config = self.config.get("health", {})
+        battery_monitor = None
+        if health_config.get("battery_monitor") == "ina219":
+            try:
+                battery_monitor = INA219Monitor(
+                    i2c_address=health_config.get("i2c_address", 0x40),
+                    battery_capacity_ah=health_config.get("battery_capacity_ah", 10.0),
+                )
+            except Exception as e:
+                logger.warning(f"Could not initialize INA219: {e}")
+
+        self.health_monitor = HealthMonitor(
+            device_id=self.config["device"]["id"],
+            battery_monitor=battery_monitor,
+            server_url=f"http://{self.config.get('server', {}).get('host', 'localhost')}:"
+                       f"{self.config.get('server', {}).get('port', 5000)}",
+            check_interval=health_config.get("check_interval", 30.0),
+            metrics_collector=self.metrics_collector,
+        )
+
+        # Targeting system for smart deterrence
+        targeting_config = self.config.get("targeting", {})
+        self.targeting = TargetingSystem(
+            config=TargetingConfig(**targeting_config),
+            gpio_controller=self.gpio,
+        ) if targeting_config.get("enabled", True) else None
+
+        # Offline mode manager
+        offline_config = self.config.get("offline", {})
+        self.offline_manager = OfflineManager(
+            config=OfflineConfig(**offline_config),
+        )
+
+        # Event recorder
+        recorder_config = self.config.get("recorder", {})
+        self.recorder = EventRecorder(
+            config=RecorderConfig(**recorder_config),
+        ) if recorder_config.get("enabled", True) else None
 
     def _load_config(self, config_path: str) -> dict:
         """Load configuration from YAML file."""
@@ -171,6 +236,12 @@ class GardenSentinelEdge:
 
     def _on_frame(self, frame, timestamp: float):
         """Process each camera frame."""
+        # Track frame for metrics
+        self.metrics_collector.increment_frames_processed()
+
+        # Check if we're in offline mode
+        is_offline = self.offline_manager.is_offline
+
         # Check for motion
         motion_detected, contours = self.motion_detector.process_frame(frame, timestamp)
 
@@ -179,10 +250,23 @@ class GardenSentinelEdge:
         if motion_detected or not self.motion_detector.config.enabled:
             detections = self.edge_inference.run(frame, timestamp)
 
-        # Send detections to server
+        # Send detections to server (or queue if offline)
         if detections:
+            # Record metrics
+            for detection in detections:
+                self.metrics_collector.increment_detections(detection.class_name)
+
             jpeg = self.camera.get_jpeg(quality=85)
-            self.communicator.send_detection(detections, jpeg)
+
+            if is_offline:
+                # Store locally for later sync
+                self.offline_manager.queue_detection(detections, jpeg, timestamp)
+            else:
+                self.communicator.send_detection(detections, jpeg)
+
+            # Record event if recorder is active
+            if self.recorder:
+                self.recorder.record_detection(frame, detections, timestamp)
 
             # Check threat level and respond locally
             for detection in detections:
@@ -191,13 +275,23 @@ class GardenSentinelEdge:
                         f"High threat detected: {detection.class_name} "
                         f"(confidence: {detection.confidence:.2f})"
                     )
-                    # Local response for critical threats
-                    if detection.threat_level == ThreatLevel.CRITICAL:
+
+                    # Use smart targeting if available
+                    if self.targeting and detection.bbox:
+                        spray_result = self.targeting.engage_target(
+                            detection, frame.shape[:2]
+                        )
+                        if spray_result:
+                            self.metrics_collector.increment_sprays(detection.class_name)
+                    elif detection.threat_level == ThreatLevel.CRITICAL:
+                        # Fallback: activate spray directly
+                        self.gpio.activate_sprayer(duration=2.0)
                         self.gpio.activate_alarm()
                         self.gpio.blink_status_led(on_time=0.2, off_time=0.2, n=10)
+                        self.metrics_collector.increment_sprays(detection.class_name)
 
-        # Upload frames to server
-        if motion_detected or detections:
+        # Upload frames to server (if online)
+        if not is_offline and (motion_detected or detections):
             jpeg = self.camera.get_jpeg()
             if jpeg:
                 self.communicator.queue_frame(jpeg, timestamp, force=bool(detections))
@@ -224,6 +318,20 @@ class GardenSentinelEdge:
         self.communicator.start()
         self.communicator.add_command_callback(self._handle_command)
 
+        # Start health monitor
+        self.health_monitor.start()
+
+        # Start Prometheus exporter
+        if self.prometheus_exporter:
+            self.prometheus_exporter.start()
+
+        # Start offline manager
+        self.offline_manager.start()
+
+        # Start event recorder
+        if self.recorder:
+            self.recorder.start()
+
         # Status LED on
         self.gpio.set_status_led(True)
         self.gpio.blink_status_led(on_time=0.1, off_time=0.1, n=3)
@@ -236,6 +344,9 @@ class GardenSentinelEdge:
         logger.info(f"  - Stream: http://localhost:{self.config.get('streaming', {}).get('http_port', 8080)}")
         logger.info(f"  - Edge inference: {'enabled' if self.edge_inference.is_initialized else 'disabled'}")
         logger.info(f"  - GPIO: {'mock mode' if self.gpio.is_mock else 'active'}")
+        logger.info(f"  - Health monitor: active (interval: {self.health_monitor.check_interval}s)")
+        if self.prometheus_exporter:
+            logger.info(f"  - Prometheus: http://localhost:{self.prometheus_exporter.port}/metrics")
 
     def _send_status(self):
         """Send device status to server."""
@@ -284,6 +395,14 @@ class GardenSentinelEdge:
         self.communicator.stop()
         self.edge_inference.cleanup()
         self.gpio.cleanup()
+
+        # Stop new components
+        self.health_monitor.stop()
+        if self.prometheus_exporter:
+            self.prometheus_exporter.stop()
+        self.offline_manager.stop()
+        if self.recorder:
+            self.recorder.stop()
 
         logger.info("Garden Sentinel Edge Device stopped")
 

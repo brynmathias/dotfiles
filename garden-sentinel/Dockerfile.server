@@ -1,0 +1,91 @@
+# Garden Sentinel Server Docker Image
+# Supports NVIDIA GPU (use nvidia-docker or --gpus flag)
+
+FROM python:3.11-slim-bookworm AS base
+
+LABEL maintainer="Garden Sentinel"
+LABEL description="Garden Sentinel Server with GPU support"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libopencv-dev \
+    libgl1 \
+    libglib2.0-0 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app user
+RUN useradd --system --no-create-home --shell /usr/sbin/nologin garden-sentinel
+
+# Create directories
+RUN mkdir -p /opt/garden-sentinel /var/lib/garden-sentinel /var/log/garden-sentinel \
+    && chown -R garden-sentinel:garden-sentinel /opt/garden-sentinel /var/lib/garden-sentinel /var/log/garden-sentinel
+
+WORKDIR /opt/garden-sentinel
+
+# ---- CPU Build Stage ----
+FROM base AS cpu
+
+RUN pip install --no-cache-dir \
+    numpy \
+    opencv-python-headless \
+    pillow \
+    pyyaml \
+    aiohttp \
+    websockets \
+    fastapi \
+    uvicorn \
+    paho-mqtt \
+    httpx \
+    torch --index-url https://download.pytorch.org/whl/cpu \
+    torchvision --index-url https://download.pytorch.org/whl/cpu \
+    ultralytics
+
+# ---- GPU Build Stage ----
+FROM base AS gpu
+
+RUN pip install --no-cache-dir \
+    numpy \
+    opencv-python-headless \
+    pillow \
+    pyyaml \
+    aiohttp \
+    websockets \
+    fastapi \
+    uvicorn \
+    paho-mqtt \
+    httpx \
+    torch --index-url https://download.pytorch.org/whl/cu121 \
+    torchvision --index-url https://download.pytorch.org/whl/cu121 \
+    ultralytics
+
+# ---- Final Stage (default to CPU) ----
+FROM cpu AS final
+
+# Copy application
+COPY garden_sentinel ./garden_sentinel
+COPY config ./config
+COPY dashboards ./dashboards
+
+# Set ownership
+RUN chown -R garden-sentinel:garden-sentinel /opt/garden-sentinel
+
+USER garden-sentinel
+
+# Environment
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:5000/health || exit 1
+
+# Default command
+CMD ["python", "-m", "garden_sentinel.server.main"]
+
+# Expose ports
+EXPOSE 5000
+EXPOSE 9090
+
+# Mount points
+VOLUME ["/etc/garden-sentinel", "/var/lib/garden-sentinel", "/var/log/garden-sentinel"]
