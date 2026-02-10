@@ -14,6 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 # Create app user
 RUN useradd --system --no-create-home --shell /usr/sbin/nologin garden-sentinel
 
@@ -26,38 +29,22 @@ WORKDIR /opt/garden-sentinel
 # ---- CPU Build Stage ----
 FROM base AS cpu
 
-RUN pip install --no-cache-dir \
-    numpy \
-    opencv-python-headless \
-    pillow \
-    pyyaml \
-    aiohttp \
-    websockets \
-    fastapi \
-    uvicorn \
-    paho-mqtt \
-    httpx \
-    torch --index-url https://download.pytorch.org/whl/cpu \
-    torchvision --index-url https://download.pytorch.org/whl/cpu \
-    ultralytics
+# Copy project files for dependency installation
+COPY pyproject.toml uv.lock* ./
+
+# Install dependencies with uv (CPU version)
+ENV UV_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
+RUN uv sync --frozen --no-dev --extra server || uv sync --no-dev --extra server
 
 # ---- GPU Build Stage ----
 FROM base AS gpu
 
-RUN pip install --no-cache-dir \
-    numpy \
-    opencv-python-headless \
-    pillow \
-    pyyaml \
-    aiohttp \
-    websockets \
-    fastapi \
-    uvicorn \
-    paho-mqtt \
-    httpx \
-    torch --index-url https://download.pytorch.org/whl/cu121 \
-    torchvision --index-url https://download.pytorch.org/whl/cu121 \
-    ultralytics
+# Copy project files for dependency installation
+COPY pyproject.toml uv.lock* ./
+
+# Install dependencies with uv (CUDA version)
+ENV UV_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cu121
+RUN uv sync --frozen --no-dev --extra server || uv sync --no-dev --extra server
 
 # ---- Final Stage (default to CPU) ----
 FROM cpu AS final
@@ -65,7 +52,9 @@ FROM cpu AS final
 # Copy application
 COPY garden_sentinel ./garden_sentinel
 COPY config ./config
-COPY dashboards ./dashboards
+
+# Copy dashboard if it exists
+COPY dashboard ./dashboard 2>/dev/null || true
 
 # Set ownership
 RUN chown -R garden-sentinel:garden-sentinel /opt/garden-sentinel
@@ -75,6 +64,7 @@ USER garden-sentinel
 # Environment
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV PATH="/opt/garden-sentinel/.venv/bin:$PATH"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
