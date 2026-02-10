@@ -28,10 +28,12 @@ RUN mkdir -p /opt/garden-sentinel /var/lib/garden-sentinel /var/log/garden-senti
 WORKDIR /opt/garden-sentinel
 
 # Copy project files for dependency installation
-COPY pyproject.toml uv.lock* ./
+COPY pyproject.toml ./
 
 # Install dependencies with uv
-RUN uv sync --frozen --no-dev --extra edge || uv sync --no-dev --extra edge
+# Note: picamera2, gpiozero, pigpio may need to be installed on host Pi
+RUN uv venv && \
+    uv pip install numpy opencv-python-headless pillow pyyaml requests paho-mqtt aiohttp websockets
 
 # Copy application
 COPY garden_sentinel ./garden_sentinel
