@@ -57,9 +57,6 @@ FROM cpu AS final
 COPY garden_sentinel ./garden_sentinel
 COPY config ./config
 
-# Copy dashboard if it exists
-COPY dashboard ./dashboard 2>/dev/null || true
-
 # Set ownership
 RUN chown -R garden-sentinel:garden-sentinel /opt/garden-sentinel
 
