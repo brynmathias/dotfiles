@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Leaflet overrides for dark mode compatibility */
+.leaflet-container {
+  font-family: inherit;
+}
+
+.leaflet-popup-content-wrapper {
+  @apply rounded-lg shadow-lg;
+}
+
+.leaflet-popup-content {
+  @apply text-sm;
+  margin: 12px;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-100;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400;
+}
+
+/* Animation for loading spinner */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.5);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+.pulse-ring {
+  animation: pulse-ring 1.5s ease-out infinite;
+}
+
+/* Camera video placeholder */
+.video-placeholder {
+  @apply bg-gray-900 flex items-center justify-center;
+  aspect-ratio: 16 / 9;
+}
+
+/* Alert severity colors */
+.severity-low {
+  @apply bg-blue-100 text-blue-800 border-blue-200;
+}
+
+.severity-medium {
+  @apply bg-yellow-100 text-yellow-800 border-yellow-200;
+}
+
+.severity-high {
+  @apply bg-orange-100 text-orange-800 border-orange-200;
+}
+
+.severity-critical {
+  @apply bg-red-100 text-red-800 border-red-200;
+}
+
+/* Status indicator */
+.status-indicator {
+  @apply w-2 h-2 rounded-full;
+}
+
+.status-online {
+  @apply bg-green-500;
+}
+
+.status-offline {
+  @apply bg-gray-400;
+}
+
+.status-warning {
+  @apply bg-yellow-500;
+}
+
+.status-error {
+  @apply bg-red-500;
+}

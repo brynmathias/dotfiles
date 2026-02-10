@@ -1,0 +1,131 @@
+# Garden Sentinel Caddy configuration
+# Automatic HTTPS with Let's Encrypt
+
+{
+    # Global options
+    email admin@example.com
+
+    # Uncomment for staging certificates during testing
+    # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+# Main site
+garden.example.com {
+    # Logging
+    log {
+        output file /var/log/caddy/garden-sentinel.log
+        format json
+    }
+
+    # Security headers
+    header {
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        -Server
+    }
+
+    # Rate limiting for auth endpoints
+    @auth path /api/auth/*
+    rate_limit @auth {
+        zone auth_zone {
+            key {remote_host}
+            events 5
+            window 1m
+        }
+    }
+
+    # API rate limiting
+    @api path /api/*
+    rate_limit @api {
+        zone api_zone {
+            key {remote_host}
+            events 60
+            window 1m
+        }
+    }
+
+    # Health check (no auth required)
+    handle /health {
+        reverse_proxy localhost:5000
+    }
+
+    # API documentation
+    handle /docs* {
+        reverse_proxy localhost:5000
+    }
+
+    handle /openapi.json {
+        reverse_proxy localhost:5000
+    }
+
+    # API endpoints
+    handle /api/* {
+        reverse_proxy localhost:5000 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # WebSocket connections
+    @websocket {
+        header Connection *Upgrade*
+        header Upgrade websocket
+    }
+    handle @websocket {
+        reverse_proxy localhost:5000
+    }
+
+    handle /ws {
+        reverse_proxy localhost:5000
+    }
+
+    # Video streams (disable buffering)
+    handle /stream/* {
+        reverse_proxy localhost:5000 {
+            flush_interval -1
+        }
+    }
+
+    # Prometheus metrics (internal only)
+    @metrics {
+        path /metrics
+        remote_ip 127.0.0.1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+    }
+    handle @metrics {
+        reverse_proxy localhost:9090
+    }
+
+    # Static dashboard files
+    handle {
+        root * /var/www/garden-sentinel/dashboard
+        try_files {path} /index.html
+        file_server
+
+        # Cache static assets
+        @static {
+            path *.js *.css *.png *.jpg *.jpeg *.gif *.ico *.svg *.woff *.woff2
+        }
+        header @static Cache-Control "public, max-age=31536000, immutable"
+    }
+}
+
+# Edge device endpoint (separate subdomain)
+devices.garden.example.com {
+    # TLS with optional client certificates
+    tls {
+        # Uncomment for mutual TLS
+        # client_auth {
+        #     mode require_and_verify
+        #     trusted_ca_cert_file /etc/caddy/certs/ca.crt
+        # }
+    }
+
+    reverse_proxy localhost:5000 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Client-Verify {tls_client_fingerprint}
+    }
+}

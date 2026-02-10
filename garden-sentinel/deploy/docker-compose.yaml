@@ -1,0 +1,118 @@
+# Garden Sentinel Docker Compose deployment
+# Includes: Server, Caddy (TLS), Prometheus, Grafana
+
+version: '3.8'
+
+services:
+  # ============== Garden Sentinel Server ==============
+  server:
+    image: garden-sentinel-server:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile.server
+    restart: unless-stopped
+    volumes:
+      - ./config/server.yaml:/etc/garden-sentinel/server.yaml:ro
+      - garden-data:/var/lib/garden-sentinel
+      - garden-logs:/var/log/garden-sentinel
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - garden-net
+    # GPU support (uncomment for NVIDIA)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ============== Caddy (TLS Termination) ==============
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8443:8443"  # Device connections
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+      - dashboard-dist:/var/www/garden-sentinel/dashboard:ro
+    networks:
+      - garden-net
+    depends_on:
+      - server
+
+  # ============== Prometheus ==============
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    networks:
+      - garden-net
+    # Expose for internal access only
+    # ports:
+    #   - "9090:9090"
+
+  # ============== Grafana ==============
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../dashboards:/etc/grafana/provisioning/dashboards/garden-sentinel:ro
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=changeme
+      - GF_SERVER_ROOT_URL=https://garden.example.com/grafana
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+    networks:
+      - garden-net
+    depends_on:
+      - prometheus
+
+  # ============== MQTT Broker (optional) ==============
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-logs:/mosquitto/log
+    networks:
+      - garden-net
+    # Expose for edge devices
+    ports:
+      - "1883:1883"
+      - "8883:8883"  # TLS
+
+networks:
+  garden-net:
+    driver: bridge
+
+volumes:
+  garden-data:
+  garden-logs:
+  caddy-data:
+  caddy-config:
+  prometheus-data:
+  grafana-data:
+  mosquitto-data:
+  mosquitto-logs:
+  dashboard-dist:
