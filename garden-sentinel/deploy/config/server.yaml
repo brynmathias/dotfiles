@@ -1,0 +1,34 @@
+# Garden Sentinel Server Configuration
+
+server:
+  host: 0.0.0.0
+  port: 5000
+  debug: false
+
+database:
+  path: /var/lib/garden-sentinel/garden_sentinel.db
+
+storage:
+  frames: /var/lib/garden-sentinel/frames
+  recordings: /var/lib/garden-sentinel/recordings
+
+mqtt:
+  enabled: true
+  host: mosquitto
+  port: 1883
+
+detection:
+  confidence_threshold: 0.7
+  model: yolov8n
+
+alerts:
+  enabled: true
+  severity_thresholds:
+    low: 0.5
+    medium: 0.7
+    high: 0.85
+    critical: 0.95
+
+logging:
+  level: INFO
+  file: /var/log/garden-sentinel/server.log
