@@ -74,7 +74,6 @@ services:
     restart: unless-stopped
     volumes:
       - grafana-data:/var/lib/grafana
-      - ../dashboards:/etc/grafana/provisioning/dashboards/garden-sentinel:ro
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=changeme
