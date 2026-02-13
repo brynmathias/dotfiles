@@ -1,4 +1,4 @@
-from .alert_manager import AlertManager, AlertConfig
+from .alert_manager import AlertManager, AlertConfig, NotificationConfig, ThreatLevelActions
 from .push_notifications import (
     PushNotificationManager,
     PushNotification,
@@ -12,6 +12,8 @@ from .push_notifications import (
 __all__ = [
     "AlertManager",
     "AlertConfig",
+    "NotificationConfig",
+    "ThreatLevelActions",
     "PushNotificationManager",
     "PushNotification",
     "NotificationPriority",

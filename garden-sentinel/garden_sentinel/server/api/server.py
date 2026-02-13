@@ -49,6 +49,9 @@ _mqtt_handler = None
 _camera_coordinator = None
 _pattern_analyzer = None
 _health_aggregator = None
+_map_api = None
+_drone_tracker = None
+_metrics_collector = None
 _connected_websockets: list[WebSocket] = []
 
 # Device stream registry: device_id -> {"url": stream_url, "last_frame": bytes, "last_update": timestamp}
@@ -63,10 +66,14 @@ def create_app(
     camera_coordinator=None,
     pattern_analyzer=None,
     health_aggregator=None,
+    map_api=None,
+    drone_tracker=None,
+    metrics_collector=None,
 ) -> FastAPI:
     """Create and configure the FastAPI application."""
     global _detection_pipeline, _alert_manager, _storage_manager, _mqtt_handler
     global _camera_coordinator, _pattern_analyzer, _health_aggregator
+    global _map_api, _drone_tracker, _metrics_collector
 
     _detection_pipeline = detection_pipeline
     _alert_manager = alert_manager
@@ -75,6 +82,9 @@ def create_app(
     _camera_coordinator = camera_coordinator
     _pattern_analyzer = pattern_analyzer
     _health_aggregator = health_aggregator
+    _map_api = map_api
+    _drone_tracker = drone_tracker
+    _metrics_collector = metrics_collector
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
