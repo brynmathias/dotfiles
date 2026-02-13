@@ -33,8 +33,8 @@ edge = [
     "pigpio>=1.78",
 ]
 coral = [
-    "pycoral>=2.0.0",
-    "tflite-runtime>=2.14.0",
+    "pycoral>=0.1.0",
+    "tflite-runtime>=2.5.0",
 ]
 training = [
     "ultralytics>=8.0.0",

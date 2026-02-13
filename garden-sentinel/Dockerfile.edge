@@ -12,7 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libatlas-base-dev \
     libjpeg-dev \
     i2c-tools \
+    curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Create app user
 RUN useradd --system --no-create-home --shell /usr/sbin/nologin garden-sentinel
@@ -23,16 +27,13 @@ RUN mkdir -p /opt/garden-sentinel /var/lib/garden-sentinel /var/log/garden-senti
 
 WORKDIR /opt/garden-sentinel
 
-# Install Python dependencies
-COPY requirements-edge.txt* ./
-RUN pip install --no-cache-dir \
-    numpy \
-    opencv-python-headless \
-    pillow \
-    pyyaml \
-    aiohttp \
-    websockets \
-    smbus2
+# Copy project files for dependency installation
+COPY pyproject.toml ./
+
+# Install dependencies with uv
+# Note: picamera2, gpiozero, pigpio may need to be installed on host Pi
+RUN uv venv && \
+    uv pip install numpy opencv-python-headless pillow pyyaml requests paho-mqtt aiohttp websockets
 
 # Copy application
 COPY garden_sentinel ./garden_sentinel
@@ -46,6 +47,7 @@ USER garden-sentinel
 # Environment
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV PATH="/opt/garden-sentinel/.venv/bin:$PATH"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

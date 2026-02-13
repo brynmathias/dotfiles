@@ -1,8 +1,6 @@
 # Garden Sentinel Docker Compose deployment
 # Includes: Server, Caddy (TLS), Prometheus, Grafana
 
-version: '3.8'
-
 services:
   # ============== Garden Sentinel Server ==============
   server:
